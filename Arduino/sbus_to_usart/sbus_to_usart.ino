@@ -3,7 +3,7 @@
 //#define RXD2 16
 //#define TXD2 17
 // ########################## DEFINES ##########################
-#define HOVER_SERIAL_BAUD   115200      // [-] Baud rate for HoverSerial (used to communicate with the hoverboard)
+#define HOVER_SERIAL_BAUD   115200      // [-] Baud rate for Serial1 (used to communicate with the hoverboard)
 #define SERIAL_BAUD         115200      // [-] Baud rate for built-in Serial (used for the Serial Monitor)
 #define START_FRAME         0xABCD       // [-] Start frme definition for reliable serial communication
 #define TIME_SEND           100         // [ms] Sending time interval
@@ -19,8 +19,12 @@
 #define RXD1 5 //3
 #define TXD1 22
 
-#include <SoftwareSerial.h>
-SoftwareSerial HoverSerial(RXD2,TXD2);        // RX, TX
+#define SSR  23
+
+//#include <SoftwareSerial.h>
+//SoftwareSerial Serial1(RXD2,TXD2);        // RX, TX
+//Serial3(RXD2,TXD2);        // RX, TX
+
 
 // Global variables
 uint8_t idx = 0;                        // Index for new data pointer
@@ -62,13 +66,16 @@ bfs::SbusData data;
 void setup() {
   /* Serial to display data */
   Serial.begin(SERIAL_BAUD);
-  HoverSerial.begin(HOVER_SERIAL_BAUD);
+  Serial1.begin(HOVER_SERIAL_BAUD, SERIAL_8N1, RXD2, TXD2);
   
   while (!Serial) {}
   /* Begin the SBUS communication */
   sbus_rx.Begin();
 //  sbus_tx.Begin();
-  Serial.println("Setup done");
+//  Serial.println("Setup done");
+
+  pinMode(SSR, OUTPUT);
+  digitalWrite(SSR, LOW);
 }
 
 // ########################## SEND ##########################
@@ -83,16 +90,80 @@ void Send(int16_t uSteer, int16_t uSpeed)
 //  Serial.println(Command.speed);
 
   // Write to Serial
-  HoverSerial.write((uint8_t *) &Command, sizeof(Command)); 
+  Serial1.write((uint8_t *) &Command, sizeof(Command)); 
 }
 
 unsigned long iTimeSend = 0;
 int iTest = 0;
 int iStep = SPEED_STEP;
 int Speed = 0;
+int SSR_toogle = 0;
+
+// ########################## RECEIVE ##########################
+void Receive()
+{
+    // Check for new data availability in the Serial buffer
+    if (Serial1.available()) {
+        incomingByte    = Serial1.read();                                   // Read the incoming byte
+        bufStartFrame = ((uint16_t)(incomingByte) << 8) | incomingBytePrev;       // Construct the start frame
+    }
+    else {
+        return;
+    }
+
+  // If DEBUG_RX is defined print all incoming bytes
+  #ifdef DEBUG_RX
+        Serial.print(bufStartFrame);
+        return;
+    #endif
+
+    // Copy received data
+    if (bufStartFrame == START_FRAME) {                     // Initialize if new data is detected
+        p       = (byte *)&NewFeedback;
+        *p++    = incomingBytePrev;
+        *p++    = incomingByte;
+        idx     = 2;  
+    } else if (idx >= 2 && idx < sizeof(SerialFeedback)) {  // Save the new received data
+        *p++    = incomingByte; 
+        idx++;
+    } 
+    
+    // Check if we reached the end of the package
+    if (idx == sizeof(SerialFeedback)) {
+        uint16_t checksum;
+        checksum = (uint16_t)(NewFeedback.start ^ NewFeedback.cmd1 ^ NewFeedback.cmd2 ^ NewFeedback.speedR_meas ^ NewFeedback.speedL_meas
+                            ^ NewFeedback.batVoltage ^ NewFeedback.boardTemp ^ NewFeedback.cmdLed);
+
+        // Check validity of the new data
+        if (NewFeedback.start == START_FRAME && checksum == NewFeedback.checksum) {
+            // Copy the new data
+            memcpy(&Feedback, &NewFeedback, sizeof(SerialFeedback));
+
+            // Print data to built-in Serial
+//            Serial.print(" 1: ");  Serial.print(Feedback.cmd1);
+            Serial.print(" Input: ");  Serial.print(Feedback.cmd2);
+            Serial.print(" SpeedL: ");  Serial.print(Feedback.speedL_meas);
+            Serial.print(" SpeedR: ");  Serial.print(Feedback.speedR_meas);
+//            Serial.print(" V: ");  Serial.print(Feedback.batVoltage);
+//            Serial.print(" T: ");  Serial.print(Feedback.boardTemp);
+//            Serial.print(" 7: ");  Serial.print(Feedback.cmdLed);
+            Serial.println("");
+        } else {
+          Serial.println("Non-valid data skipped");
+        }
+        idx = 0;    // Reset the index (it prevents to enter in this if condition in the next cycle)
+    }
+
+    // Update previous states
+    incomingBytePrev = incomingByte;
+}
+
+// ########################## LOOP ##########################
 
 void loop () {
   unsigned long timeNow = millis();
+
+  Receive();
   
   if (sbus_rx.Read()) {
     /* Grab the received data */
@@ -100,8 +171,18 @@ void loop () {
     /* Display the received data */
 
     Speed = data.ch[1];
+
+    SSR_toogle = data.ch[6];
+
+    if (SSR_toogle > 1000) {
+      digitalWrite(SSR, HIGH);
+    } else {
+      digitalWrite(SSR, LOW);
+    }
+
+//    Serial.println(SSR_toogle);
     
-    Serial.println(Speed);
+//    Serial.println(Speed);
 //    Serial.print("\t");
 
     // Failsafe trigger

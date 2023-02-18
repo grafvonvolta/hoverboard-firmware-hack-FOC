@@ -144,9 +144,9 @@ void Receive()
             Serial.print(" Input: ");  Serial.print(Feedback.cmd2);
             Serial.print(" SpeedL: ");  Serial.print(Feedback.speedL_meas);
             Serial.print(" SpeedR: ");  Serial.print(Feedback.speedR_meas);
-//            Serial.print(" V: ");  Serial.print(Feedback.batVoltage);
+            Serial.print(" V: ");  Serial.print(Feedback.batVoltage);
 //            Serial.print(" T: ");  Serial.print(Feedback.boardTemp);
-//            Serial.print(" 7: ");  Serial.print(Feedback.cmdLed);
+//            Serial.print(" Led: ");  Serial.print(Feedback.cmdLed);
             Serial.println("");
         } else {
           Serial.println("Non-valid data skipped");

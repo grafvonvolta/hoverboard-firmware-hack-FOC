@@ -20,6 +20,8 @@
 #define TXD1 22
 
 #define SSR  23
+#define GAS  33
+#define BREAK  25
 
 //#include <SoftwareSerial.h>
 //SoftwareSerial Serial1(RXD2,TXD2);        // RX, TX
@@ -33,24 +35,27 @@ byte *p;                                // Pointer declaration for the new recei
 byte incomingByte;
 byte incomingBytePrev;
 
-typedef struct{
-   uint16_t start;
-   int16_t  steer;
-   int16_t  speed;
-   uint16_t checksum;
+int gasValue = 0;
+int breakValue = 0;
+
+typedef struct {
+  uint16_t start;
+  int16_t  steer;
+  int16_t  speed;
+  uint16_t checksum;
 } SerialCommand;
 SerialCommand Command;
 
-typedef struct{
-   uint16_t start;
-   int16_t  cmd1;
-   int16_t  cmd2;
-   int16_t  speedR_meas;
-   int16_t  speedL_meas;
-   int16_t  batVoltage;
-   int16_t  boardTemp;
-   uint16_t cmdLed;
-   uint16_t checksum;
+typedef struct {
+  uint16_t start;
+  int16_t  cmd1;
+  int16_t  cmd2;
+  int16_t  speedR_meas;
+  int16_t  speedL_meas;
+  int16_t  batVoltage;
+  int16_t  boardTemp;
+  uint16_t cmdLed;
+  uint16_t checksum;
 } SerialFeedback;
 SerialFeedback Feedback;
 SerialFeedback NewFeedback;
@@ -67,12 +72,12 @@ void setup() {
   /* Serial to display data */
   Serial.begin(SERIAL_BAUD);
   Serial1.begin(HOVER_SERIAL_BAUD, SERIAL_8N1, RXD2, TXD2);
-  
+
   while (!Serial) {}
   /* Begin the SBUS communication */
   sbus_rx.Begin();
-//  sbus_tx.Begin();
-//  Serial.println("Setup done");
+  //  sbus_tx.Begin();
+  //  Serial.println("Setup done");
 
   pinMode(SSR, OUTPUT);
   digitalWrite(SSR, LOW);
@@ -87,10 +92,10 @@ void Send(int16_t uSteer, int16_t uSpeed)
   Command.speed    = (int16_t)uSpeed;
   Command.checksum = (uint16_t)(Command.start ^ Command.steer ^ Command.speed);
 
-//  Serial.println(Command.speed);
+  //  Serial.println(Command.speed);
 
   // Write to Serial
-  Serial1.write((uint8_t *) &Command, sizeof(Command)); 
+  Serial1.write((uint8_t *) &Command, sizeof(Command));
 }
 
 unsigned long iTimeSend = 0;
@@ -102,61 +107,78 @@ int SSR_toogle = 0;
 // ########################## RECEIVE ##########################
 void Receive()
 {
-    // Check for new data availability in the Serial buffer
-    if (Serial1.available()) {
-        incomingByte    = Serial1.read();                                   // Read the incoming byte
-        bufStartFrame = ((uint16_t)(incomingByte) << 8) | incomingBytePrev;       // Construct the start frame
-    }
-    else {
-        return;
-    }
+  // Check for new data availability in the Serial buffer
+  if (Serial1.available()) {
+    incomingByte    = Serial1.read();                                   // Read the incoming byte
+    bufStartFrame = ((uint16_t)(incomingByte) << 8) | incomingBytePrev;       // Construct the start frame
+  }
+  else {
+    return;
+  }
 
   // If DEBUG_RX is defined print all incoming bytes
-  #ifdef DEBUG_RX
-        Serial.print(bufStartFrame);
-        return;
-    #endif
+#ifdef DEBUG_RX
+  Serial.print(bufStartFrame);
+  return;
+#endif
 
-    // Copy received data
-    if (bufStartFrame == START_FRAME) {                     // Initialize if new data is detected
-        p       = (byte *)&NewFeedback;
-        *p++    = incomingBytePrev;
-        *p++    = incomingByte;
-        idx     = 2;  
-    } else if (idx >= 2 && idx < sizeof(SerialFeedback)) {  // Save the new received data
-        *p++    = incomingByte; 
-        idx++;
-    } 
-    
-    // Check if we reached the end of the package
-    if (idx == sizeof(SerialFeedback)) {
-        uint16_t checksum;
-        checksum = (uint16_t)(NewFeedback.start ^ NewFeedback.cmd1 ^ NewFeedback.cmd2 ^ NewFeedback.speedR_meas ^ NewFeedback.speedL_meas
-                            ^ NewFeedback.batVoltage ^ NewFeedback.boardTemp ^ NewFeedback.cmdLed);
+  // Copy received data
+  if (bufStartFrame == START_FRAME) {                     // Initialize if new data is detected
+    p       = (byte *)&NewFeedback;
+    *p++    = incomingBytePrev;
+    *p++    = incomingByte;
+    idx     = 2;
+  } else if (idx >= 2 && idx < sizeof(SerialFeedback)) {  // Save the new received data
+    *p++    = incomingByte;
+    idx++;
+  }
 
-        // Check validity of the new data
-        if (NewFeedback.start == START_FRAME && checksum == NewFeedback.checksum) {
-            // Copy the new data
-            memcpy(&Feedback, &NewFeedback, sizeof(SerialFeedback));
+  // Check if we reached the end of the package
+  if (idx == sizeof(SerialFeedback)) {
+    uint16_t checksum;
+    checksum = (uint16_t)(NewFeedback.start ^ NewFeedback.cmd1 ^ NewFeedback.cmd2 ^ NewFeedback.speedR_meas ^ NewFeedback.speedL_meas
+                          ^ NewFeedback.batVoltage ^ NewFeedback.boardTemp ^ NewFeedback.cmdLed);
 
-            // Print data to built-in Serial
-//            Serial.print(" 1: ");  Serial.print(Feedback.cmd1);
-            Serial.print(" Input: ");  Serial.print(Feedback.cmd2);
-            Serial.print(" SpeedL: ");  Serial.print(Feedback.speedL_meas);
-            Serial.print(" SpeedR: ");  Serial.print(Feedback.speedR_meas);
-            Serial.print(" V: ");  Serial.print(Feedback.batVoltage);
-//            Serial.print(" T: ");  Serial.print(Feedback.boardTemp);
-//            Serial.print(" Led: ");  Serial.print(Feedback.cmdLed);
-            Serial.println("");
-        } else {
-          Serial.println("Non-valid data skipped");
-        }
-        idx = 0;    // Reset the index (it prevents to enter in this if condition in the next cycle)
+    // Check validity of the new data
+    if (NewFeedback.start == START_FRAME && checksum == NewFeedback.checksum) {
+      // Copy the new data
+      memcpy(&Feedback, &NewFeedback, sizeof(SerialFeedback));
+
+      // Print data to built-in Serial
+      //            Serial.print(" 1: ");  Serial.print(Feedback.cmd1);
+      Serial.print(" Input: ");  Serial.print(Feedback.cmd2);
+      Serial.print(" SpeedL: ");  Serial.print(Feedback.speedL_meas);
+      Serial.print(" SpeedR: ");  Serial.print(Feedback.speedR_meas);
+      Serial.print(" V: ");  Serial.print(Feedback.batVoltage / 100);
+      //            Serial.print(" T: ");  Serial.print(Feedback.boardTemp);
+      //            Serial.print(" Led: ");  Serial.print(Feedback.cmdLed);
+      Serial.println("");
+    } else {
+      Serial.println("Non-valid data skipped");
     }
+    idx = 0;    // Reset the index (it prevents to enter in this if condition in the next cycle)
+  }
 
-    // Update previous states
-    incomingBytePrev = incomingByte;
+  // Update previous states
+  incomingBytePrev = incomingByte;
 }
+
+int readPotAverage(int potPin, int numReadings) {
+  long adc_sum = 0; // must be long to hold a large value
+
+  for (int i = 0; i < numReadings; i++) {
+    int adc = analogRead(potPin);
+    adc_sum += adc;
+
+    delay(0.1);
+  }
+
+  // Calculate the average
+  int adc_average = adc_sum / numReadings;
+
+  return adc_average;
+}
+
 
 // ########################## LOOP ##########################
 
@@ -164,7 +186,7 @@ void loop () {
   unsigned long timeNow = millis();
 
   Receive();
-  
+
   if (sbus_rx.Read()) {
     /* Grab the received data */
     data = sbus_rx.data();
@@ -181,7 +203,6 @@ void loop () {
     }
 
 //    Serial.println(SSR_toogle);
-    
 //    Serial.println(Speed);
 //    Serial.print("\t");
 
@@ -192,20 +213,27 @@ void loop () {
 
 
 
-    
-//    Serial.print(data.ch[i]);
-    
-//    for (int8_t i = 0; i < data.NUM_CH; i++) {
-//      Serial.print(data.ch[i]);
-//      Serial.print("\t");
-//    }
+int averageGasValue = readPotAverage(GAS, 100);
+int averageBreakValue = readPotAverage(BREAK, 100);
+
+Serial.print("Gas: ");
+Serial.println(averageGasValue);
+Serial.print("Break: ");
+Serial.println(averageBreakValue);
+
+    //    Serial.print(data.ch[1]);
+
+    //    for (int8_t i = 0; i < data.NUM_CH; i++) {
+    //      Serial.print(data.ch[i]);
+    //      Serial.print("\t");
+    //    }
     /* Display lost frames and failsafe data */
-//    Serial.print(data.lost_frame);
-//    Serial.print("\t");
-//    Serial.println(data.failsafe);
+    //    Serial.print(data.lost_frame);
+    //    Serial.print("\t");
+    //    Serial.println(data.failsafe);
     /* Set the SBUS TX data to the received data */
-//    sbus_tx.data(data);
+    //    sbus_tx.data(data);
     /* Write the data to the servos */
-//    sbus_tx.Write();
+    //    sbus_tx.Write();
   }
 }

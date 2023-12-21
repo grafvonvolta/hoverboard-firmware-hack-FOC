@@ -103,6 +103,11 @@ int iTest = 0;
 int iStep = SPEED_STEP;
 int Speed = 0;
 int SSR_toogle = 0;
+int Overwrite = 0;
+int averageGasValue = 0;
+int averageBreakValue = 0;
+int GasMappedValue = 0;
+int BreakMappedValue = 0;
 
 // ########################## RECEIVE ##########################
 void Receive()
@@ -192,9 +197,9 @@ void loop () {
     data = sbus_rx.data();
     /* Display the received data */
 
-    Speed = data.ch[1];
 
     SSR_toogle = data.ch[6];
+    Overwrite = data.ch[8];
 
     if (SSR_toogle > 1000) {
       digitalWrite(SSR, HIGH);
@@ -202,24 +207,64 @@ void loop () {
       digitalWrite(SSR, LOW);
     }
 
-//    Serial.println(SSR_toogle);
-//    Serial.println(Speed);
-//    Serial.print("\t");
+    //    Serial.println(SSR_toogle);
+    //    Serial.println(Speed);
+    //    Serial.print("\t");
+
+    //    expected values: 372, 1090, 1810
 
     // Failsafe trigger
-    if (Speed > 300) {
-      Send(0, Speed);
+    if (Overwrite > 1200) {
+      // input from steeringwheel
+      averageGasValue = readPotAverage(GAS, 100);
+      averageBreakValue = readPotAverage(BREAK, 100);
+
+      if (averageBreakValue > 400) {
+        //        BreakMappedValue = map(averageBreakValue, 300, 3000, 1090, 372);
+        //        BreakMappedValue = map(averageBreakValue, 300, 3000, 1090, 731); // map to half speed
+        BreakMappedValue = map(averageBreakValue, 300, 3000, 1090, 1000); // map to third speed
+
+        Send(0, BreakMappedValue);
+      } else if ((averageBreakValue <= 400) and (averageGasValue > 500)) {
+        //        GasMappedValue = map(averageGasValue, 500, 3800, 1090, 1810);
+        //        GasMappedValue = map(averageGasValue, 500, 3800, 1090, 1450); // map to half speed
+        GasMappedValue = map(averageGasValue, 500, 3800, 1090, 1200); // map to minimal speed
+
+        Send(0, GasMappedValue);
+      } else {
+        Send(0, 1090); // send 0 speed (0 = 1090)
+      }
+    } else
+    {
+      Speed = data.ch[1];
+      // input from remote
+      if (Speed > 300) {
+        Send(0, Speed);
+      }
     }
 
+    //  for (int i = 0; i < 10; ++i) {
+    //    Serial.print("Content of data.ch[");
+    //    Serial.print(i);
+    //    Serial.print("]: ");
+    //    Serial.println(data.ch[i]);
+    //  }
 
 
-int averageGasValue = readPotAverage(GAS, 100);
-int averageBreakValue = readPotAverage(BREAK, 100);
 
-Serial.print("Gas: ");
-Serial.println(averageGasValue);
-Serial.print("Break: ");
-Serial.println(averageBreakValue);
+    Serial.print("Gas remote: ");
+    Serial.println(Speed);
+    Serial.print("Gas: ");
+    Serial.println(averageGasValue);
+    Serial.print("Break: ");
+    Serial.println(averageBreakValue);
+    Serial.print("BreakMapped: ");
+    Serial.println(BreakMappedValue);
+    Serial.print("Overwrite: ");
+    Serial.println(data.ch[8]);
+    Serial.print("Speed: ");
+    Serial.println(Speed);
+
 
     //    Serial.print(data.ch[1]);
 

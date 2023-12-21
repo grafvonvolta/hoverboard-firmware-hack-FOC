@@ -5,6 +5,8 @@ const int potPin = 34;
 int potValue = 0;
 
 void setup() {
+  pinMode(potPin, INPUT_PULLDOWN); 
+  
   Serial.begin(115200);
   delay(1000);
 }

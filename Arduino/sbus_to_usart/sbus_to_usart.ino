@@ -219,11 +219,12 @@ void loop () {
       averageGasValue = readPotAverage(GAS, 100);
       averageBreakValue = readPotAverage(BREAK, 100);
 
-      if (averageBreakValue > 400) {
+      if ((averageBreakValue > 400) and (averageGasValue > 500)) {
+        Send(0, 1090); // send 0 speed (0 = 1090)
+      } else if ((averageBreakValue > 400) and (averageGasValue <= 500)) {
         //        BreakMappedValue = map(averageBreakValue, 300, 3000, 1090, 372);
         //        BreakMappedValue = map(averageBreakValue, 300, 3000, 1090, 731); // map to half speed
-        BreakMappedValue = map(averageBreakValue, 300, 3000, 1090, 1000); // map to third speed
-
+        BreakMappedValue = map(averageBreakValue, 300, 3000, 1090, 1000); // map to minimal speed
         Send(0, BreakMappedValue);
       } else if ((averageBreakValue <= 400) and (averageGasValue > 500)) {
         //        GasMappedValue = map(averageGasValue, 500, 3800, 1090, 1810);

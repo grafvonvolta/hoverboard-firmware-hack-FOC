@@ -75,7 +75,7 @@ void setup() {
 
   while (!Serial) {}
   /* Begin the SBUS communication */
-  sbus_rx.Begin();
+//  sbus_rx.Begin();
   //  sbus_tx.Begin();
   //  Serial.println("Setup done");
 
@@ -185,21 +185,36 @@ int readPotAverage(int potPin, int numReadings) {
 }
 
 
+float mapInverseLog(int input, int inMin, int inMax, int outMin, int outMax) {
+  // Step 1: Normalize input to range 0.0 – 1.0
+  float norm = (float)(input - inMin) / (inMax - inMin);
+  norm = constrain(norm, 0.0, 1.0);
+
+  // Step 2: Apply inverse log-like curve: fast start, slow end
+  float curved = 1.0 - sqrt(1.0 - norm);  // Inverse log curve
+
+  // Step 3: Scale to output range
+  return outMin + curved * (outMax - outMin);
+}
+
 // ########################## LOOP ##########################
 
 void loop () {
   unsigned long timeNow = millis();
 
-  Receive();
+//  Receive();
 
-  if (sbus_rx.Read()) {
+//  if (sbus_rx.Read()) {
+  if (1) {
     /* Grab the received data */
     data = sbus_rx.data();
     /* Display the received data */
 
 
-    SSR_toogle = data.ch[6];
-    Overwrite = data.ch[8];
+//    SSR_toogle = data.ch[6];
+//    Overwrite = data.ch[8];
+    SSR_toogle = 1300;
+    Overwrite = 1300;
 
     if (SSR_toogle > 1000) {
       digitalWrite(SSR, HIGH);
@@ -227,9 +242,11 @@ void loop () {
         BreakMappedValue = map(averageBreakValue, 300, 3000, 1090, 1000); // map to minimal speed
         Send(0, BreakMappedValue);
       } else if ((averageBreakValue <= 400) and (averageGasValue > 500)) {
-        //        GasMappedValue = map(averageGasValue, 500, 3800, 1090, 1810);
-        //        GasMappedValue = map(averageGasValue, 500, 3800, 1090, 1450); // map to half speed
-        GasMappedValue = map(averageGasValue, 500, 3800, 1090, 1200); // map to minimal speed
+//        GasMappedValue = map(averageGasValue, 500, 3800, 1090, 1810);
+//        GasMappedValue = map(averageGasValue, 500, 3800, 1090, 1450); // map to half speed
+//          GasMappedValue = mapInverseLog(averageGasValue, 500, 3800, 1090, 1450); // inverse log map to half speed
+          GasMappedValue = mapInverseLog(averageGasValue, 500, 3800, 1090, 1300); // inverse log map to bet less than half speed
+//        GasMappedValue = map(averageGasValue, 500, 3800, 1090, 1200); // map to minimal speed
 
         Send(0, GasMappedValue);
       } else {

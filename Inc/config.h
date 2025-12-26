@@ -154,7 +154,7 @@
 // Limitation settings
 #define I_MOT_MAX       3              // 15 // 3 = stopable by hand [A] Maximum single motor current limit
 #define I_DC_MAX        5              // 17 // 5 = stopable by hand [A] Maximum stage2 DC Link current limit for Commutation and Sinusoidal types (This is the final current protection. Above this value, current chopping is applied. To avoid this make sure that I_DC_MAX = I_MOT_MAX + 2A)
-#define N_MOT_MAX       100            // 1000 [rpm] Maximum motor speed limit 100 = 3kmh
+#define N_MOT_MAX       150            // 1000 [rpm] Maximum motor speed limit 100 = 3kmh
 
 // Field Weakening / Phase Advance
 #define FIELD_WEAK_ENA  1               // [-] Field Weakening / Phase Advance enable flag: 0 = Disabled (default), 1 = Enabled

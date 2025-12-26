@@ -207,7 +207,7 @@ void loop () {
 //  if (sbus_rx.Read()) {
   if (1) {
     /* Grab the received data */
-    data = sbus_rx.data();
+//    data = sbus_rx.data();
     /* Display the received data */
 
 
@@ -229,7 +229,7 @@ void loop () {
     //    expected values: 372, 1090, 1810
 
     // Failsafe trigger
-    if (Overwrite > 1200) {
+//    if (Overwrite > 1200) {
       // input from steeringwheel
       averageGasValue = readPotAverage(GAS, 100);
       averageBreakValue = readPotAverage(BREAK, 100);
@@ -239,27 +239,28 @@ void loop () {
       } else if ((averageBreakValue > 400) and (averageGasValue <= 500)) {
         //        BreakMappedValue = map(averageBreakValue, 300, 3000, 1090, 372);
         //        BreakMappedValue = map(averageBreakValue, 300, 3000, 1090, 731); // map to half speed
-        BreakMappedValue = map(averageBreakValue, 300, 3000, 1090, 1000); // map to minimal speed
+          BreakMappedValue = mapInverseLog(averageBreakValue, 300, 3000, 1090, 700); // map to half speed
+//        BreakMappedValue = map(averageBreakValue, 300, 3000, 1090, 1000); // map to minimal speed
         Send(0, BreakMappedValue);
       } else if ((averageBreakValue <= 400) and (averageGasValue > 500)) {
-//        GasMappedValue = map(averageGasValue, 500, 3800, 1090, 1810);
+        GasMappedValue = mapInverseLog(averageGasValue, 500, 3800, 1090, 1810);
 //        GasMappedValue = map(averageGasValue, 500, 3800, 1090, 1450); // map to half speed
-//          GasMappedValue = mapInverseLog(averageGasValue, 500, 3800, 1090, 1450); // inverse log map to half speed
-          GasMappedValue = mapInverseLog(averageGasValue, 500, 3800, 1090, 1300); // inverse log map to bet less than half speed
+//        GasMappedValue = mapInverseLog(averageGasValue, 500, 3800, 1090, 1450); // inverse log map to half speed
+//        GasMappedValue = mapInverseLog(averageGasValue, 500, 3800, 1090, 1350); // inverse log map to bet less than half speed
 //        GasMappedValue = map(averageGasValue, 500, 3800, 1090, 1200); // map to minimal speed
 
         Send(0, GasMappedValue);
       } else {
         Send(0, 1090); // send 0 speed (0 = 1090)
       }
-    } else
-    {
-      Speed = data.ch[1];
-      // input from remote
-      if (Speed > 300) {
-        Send(0, Speed);
-      }
-    }
+//    } else
+//    {
+//      Speed = data.ch[1];
+//      // input from remote
+//      if (Speed > 300) {
+//        Send(0, Speed);
+//      }
+//    }
 
     //  for (int i = 0; i < 10; ++i) {
     //    Serial.print("Content of data.ch[");
@@ -278,8 +279,10 @@ void loop () {
     Serial.println(averageBreakValue);
     Serial.print("BreakMapped: ");
     Serial.println(BreakMappedValue);
-    Serial.print("Overwrite: ");
-    Serial.println(data.ch[8]);
+    Serial.print("GasMapped: ");
+    Serial.println(GasMappedValue);
+//    Serial.print("Overwrite: ");
+//    Serial.println(data.ch[8]);
     Serial.print("Speed: ");
     Serial.println(Speed);
 

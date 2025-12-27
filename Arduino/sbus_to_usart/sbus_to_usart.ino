@@ -1,42 +1,46 @@
-#include "sbus.h"
+// ============================================================
+// CONFIG
+// ============================================================
 
-//#define RXD2 16
-//#define TXD2 17
-// ########################## DEFINES ##########################
-#define HOVER_SERIAL_BAUD   115200      // [-] Baud rate for Serial1 (used to communicate with the hoverboard)
-#define SERIAL_BAUD         115200      // [-] Baud rate for built-in Serial (used for the Serial Monitor)
-#define START_FRAME         0xABCD       // [-] Start frme definition for reliable serial communication
-#define TIME_SEND           100         // [ms] Sending time interval
-#define SPEED_MAX_TEST      300         // [-] Maximum speed for testing
-#define SPEED_STEP          5          // [-] Speed step
-// #define DEBUG_RX                        // [-] Debug received data. Prints all bytes to serial (comment-out to disable)
+#define HOVER_SERIAL_BAUD   115200
+#define SERIAL_BAUD         115200
+#define START_FRAME         0xABCD
 
-// hoverboard
+// Hoverboard UART (UART2)
 #define RXD2 16
 #define TXD2 17
 
-// TBS crossfire
-#define RXD1 5 //3
-#define TXD1 22
+// ADC inputs (ADC1 only)
+#define GAS    33
+#define BREAK  32
 
-#define SSR  23
-#define GAS  33
-#define BREAK  25
+// Neutral / limits
+#define NEUTRAL_VALUE 1000
+#define MIN_OUTPUT    0
+#define MAX_OUTPUT    2000
 
-//#include <SoftwareSerial.h>
-//SoftwareSerial Serial1(RXD2,TXD2);        // RX, TX
-//Serial3(RXD2,TXD2);        // RX, TX
+// #define DEBUG_RX   // uncomment to print raw incoming bytes/frame words
 
+// ============================================================
+// GLOBALS
+// ============================================================
 
-// Global variables
-uint8_t idx = 0;                        // Index for new data pointer
-uint16_t bufStartFrame;                 // Buffer Start Frame
-byte *p;                                // Pointer declaration for the new received data
+uint8_t idx = 0;
+uint16_t bufStartFrame;
+byte *p;
 byte incomingByte;
 byte incomingBytePrev;
 
-int gasValue = 0;
-int breakValue = 0;
+int Speed = 0;
+
+int averageGasValue   = 0;
+int averageBreakValue = 0;
+int GasMappedValue    = NEUTRAL_VALUE;
+int BreakMappedValue  = NEUTRAL_VALUE;
+
+// ============================================================
+// STRUCTS
+// ============================================================
 
 typedef struct {
   uint16_t start;
@@ -60,56 +64,18 @@ typedef struct {
 SerialFeedback Feedback;
 SerialFeedback NewFeedback;
 
-/* SBUS object, reading SBUS */
-bfs::SbusRx sbus_rx(&Serial2, RXD1, TXD1, false);
-/* SBUS object, writing SBUS */
-//bfs::SbusTx sbus_tx(&Serial2, RXD1, TXD1, false);
-/* SBUS data */
-bfs::SbusData data;
+// ============================================================
+// FUNCTIONS
+// ============================================================
 
-// ########################## SETUP ##########################
-void setup() {
-  /* Serial to display data */
-  Serial.begin(SERIAL_BAUD);
-  Serial1.begin(HOVER_SERIAL_BAUD, SERIAL_8N1, RXD2, TXD2);
-
-  while (!Serial) {}
-  /* Begin the SBUS communication */
-//  sbus_rx.Begin();
-  //  sbus_tx.Begin();
-  //  Serial.println("Setup done");
-
-  pinMode(SSR, OUTPUT);
-  digitalWrite(SSR, LOW);
+void Send(int16_t uSteer, int16_t uSpeed) {
+  Command.start    = START_FRAME;
+  Command.steer    = uSteer;
+  Command.speed    = uSpeed;
+  Command.checksum = Command.start ^ Command.steer ^ Command.speed;
+  Serial1.write((uint8_t *)&Command, sizeof(Command));
 }
 
-// ########################## SEND ##########################
-void Send(int16_t uSteer, int16_t uSpeed)
-{
-  // Create command
-  Command.start    = (uint16_t)START_FRAME;
-  Command.steer    = (int16_t)uSteer;
-  Command.speed    = (int16_t)uSpeed;
-  Command.checksum = (uint16_t)(Command.start ^ Command.steer ^ Command.speed);
-
-  //  Serial.println(Command.speed);
-
-  // Write to Serial
-  Serial1.write((uint8_t *) &Command, sizeof(Command));
-}
-
-unsigned long iTimeSend = 0;
-int iTest = 0;
-int iStep = SPEED_STEP;
-int Speed = 0;
-int SSR_toogle = 0;
-int Overwrite = 0;
-int averageGasValue = 0;
-int averageBreakValue = 0;
-int GasMappedValue = 0;
-int BreakMappedValue = 0;
-
-// ########################## RECEIVE ##########################
 void Receive()
 {
   // Check for new data availability in the Serial buffer
@@ -168,138 +134,112 @@ void Receive()
   incomingBytePrev = incomingByte;
 }
 
-int readPotAverage(int potPin, int numReadings) {
-  long adc_sum = 0; // must be long to hold a large value
-
+int readPotAverage(int pin, int numReadings) {
+  long sum = 0;
   for (int i = 0; i < numReadings; i++) {
-    int adc = analogRead(potPin);
-    adc_sum += adc;
-
-    delay(0.1);
+    sum += analogRead(pin);
+    delay(1);
   }
-
-  // Calculate the average
-  int adc_average = adc_sum / numReadings;
-
-  return adc_average;
+  return (int)(sum / numReadings);
 }
 
-
+// Inverse-log curve: slow near neutral, stronger near end
 float mapInverseLog(int input, int inMin, int inMax, int outMin, int outMax) {
-  // Step 1: Normalize input to range 0.0 – 1.0
   float norm = (float)(input - inMin) / (inMax - inMin);
-  norm = constrain(norm, 0.0, 1.0);
-
-  // Step 2: Apply inverse log-like curve: fast start, slow end
-  float curved = 1.0 - sqrt(1.0 - norm);  // Inverse log curve
-
-  // Step 3: Scale to output range
+  norm = constrain(norm, 0.0f, 1.0f);
+  float curved = 1.0f - sqrt(1.0f - norm);
   return outMin + curved * (outMax - outMin);
 }
 
-// ########################## LOOP ##########################
+// ============================================================
+// SETUP
+// ============================================================
+
+void setup() {
+  Serial.begin(SERIAL_BAUD);
+  Serial1.begin(HOVER_SERIAL_BAUD, SERIAL_8N1, RXD2, TXD2);
+}
+
+// ============================================================
+// LOOP
+// ============================================================
 
 void loop () {
   unsigned long timeNow = millis();
 
-//  Receive();
+  // Read feedback from hoverboard (prints status when a valid frame is received)
+  Receive();
 
-//  if (sbus_rx.Read()) {
-  if (1) {
-    /* Grab the received data */
-//    data = sbus_rx.data();
-    /* Display the received data */
+  // ---------- FAILSAFE DEFAULT ----------
+  int16_t sendValue = NEUTRAL_VALUE;
 
+  // ---------- READ INPUTS ----------
+  averageGasValue   = readPotAverage(GAS, 100);
+  averageBreakValue = readPotAverage(BREAK, 100);
 
-//    SSR_toogle = data.ch[6];
-//    Overwrite = data.ch[8];
-    SSR_toogle = 1300;
-    Overwrite = 1300;
-
-    if (SSR_toogle > 1000) {
-      digitalWrite(SSR, HIGH);
-    } else {
-      digitalWrite(SSR, LOW);
-    }
-
-    //    Serial.println(SSR_toogle);
-    //    Serial.println(Speed);
-    //    Serial.print("\t");
-
-    //    expected values: 372, 1090, 1810
-
-    // Failsafe trigger
-//    if (Overwrite > 1200) {
-      // input from steeringwheel
-      averageGasValue = readPotAverage(GAS, 100);
-      averageBreakValue = readPotAverage(BREAK, 100);
-
-      if ((averageBreakValue > 400) and (averageGasValue > 500)) {
-        Send(0, 1090); // send 0 speed (0 = 1090)
-      } else if ((averageBreakValue > 400) and (averageGasValue <= 500)) {
-        //        BreakMappedValue = map(averageBreakValue, 300, 3000, 1090, 372);
-        //        BreakMappedValue = map(averageBreakValue, 300, 3000, 1090, 731); // map to half speed
-          BreakMappedValue = mapInverseLog(averageBreakValue, 300, 3000, 1090, 700); // map to half speed
-//        BreakMappedValue = map(averageBreakValue, 300, 3000, 1090, 1000); // map to minimal speed
-        Send(0, BreakMappedValue);
-      } else if ((averageBreakValue <= 400) and (averageGasValue > 500)) {
-        GasMappedValue = mapInverseLog(averageGasValue, 500, 3800, 1090, 1810);
-//        GasMappedValue = map(averageGasValue, 500, 3800, 1090, 1450); // map to half speed
-//        GasMappedValue = mapInverseLog(averageGasValue, 500, 3800, 1090, 1450); // inverse log map to half speed
-//        GasMappedValue = mapInverseLog(averageGasValue, 500, 3800, 1090, 1350); // inverse log map to bet less than half speed
-//        GasMappedValue = map(averageGasValue, 500, 3800, 1090, 1200); // map to minimal speed
-
-        Send(0, GasMappedValue);
-      } else {
-        Send(0, 1090); // send 0 speed (0 = 1090)
-      }
-//    } else
-//    {
-//      Speed = data.ch[1];
-//      // input from remote
-//      if (Speed > 300) {
-//        Send(0, Speed);
-//      }
-//    }
-
-    //  for (int i = 0; i < 10; ++i) {
-    //    Serial.print("Content of data.ch[");
-    //    Serial.print(i);
-    //    Serial.print("]: ");
-    //    Serial.println(data.ch[i]);
-    //  }
-
-
-
-    Serial.print("Gas remote: ");
-    Serial.println(Speed);
-    Serial.print("Gas: ");
-    Serial.println(averageGasValue);
-    Serial.print("Break: ");
-    Serial.println(averageBreakValue);
-    Serial.print("BreakMapped: ");
-    Serial.println(BreakMappedValue);
-    Serial.print("GasMapped: ");
-    Serial.println(GasMappedValue);
-//    Serial.print("Overwrite: ");
-//    Serial.println(data.ch[8]);
-    Serial.print("Speed: ");
-    Serial.println(Speed);
-
-
-    //    Serial.print(data.ch[1]);
-
-    //    for (int8_t i = 0; i < data.NUM_CH; i++) {
-    //      Serial.print(data.ch[i]);
-    //      Serial.print("\t");
-    //    }
-    /* Display lost frames and failsafe data */
-    //    Serial.print(data.lost_frame);
-    //    Serial.print("\t");
-    //    Serial.println(data.failsafe);
-    /* Set the SBUS TX data to the received data */
-    //    sbus_tx.data(data);
-    /* Write the data to the servos */
-    //    sbus_tx.Write();
+  // ---------- ADC SANITY CHECK ----------
+  if (averageGasValue < 0 || averageGasValue > 4095 ||
+      averageBreakValue < 0 || averageBreakValue > 4095) {
+    Send(0, NEUTRAL_VALUE);
+    return;
   }
+
+  // ---------- YOUR ORIGINAL DECISION LOGIC ----------
+  if ((averageBreakValue > 400) && (averageGasValue > 500)) {
+
+    sendValue = NEUTRAL_VALUE;
+
+  }
+  else if ((averageBreakValue > 400) && (averageGasValue <= 500)) {
+
+    BreakMappedValue = (int)mapInverseLog(
+      averageBreakValue,
+      209,     // brake min
+      2997,    // brake max
+      1000,    // neutral
+      0        // full brake
+    );
+
+    sendValue = BreakMappedValue;
+
+  }
+  else if ((averageBreakValue <= 400) && (averageGasValue > 500)) {
+
+    GasMappedValue = (int)mapInverseLog(
+      averageGasValue,
+      444,     // gas min
+      3665,    // gas max
+      1000,    // neutral
+      2000     // full gas
+    );
+
+    sendValue = GasMappedValue;
+
+  }
+  else {
+
+    sendValue = NEUTRAL_VALUE;
+  }
+
+  // ---------- HARD OUTPUT FAILSAFE ----------
+  if (sendValue < MIN_OUTPUT || sendValue > MAX_OUTPUT) {
+    sendValue = NEUTRAL_VALUE;
+  }
+
+  // ---------- SEND ----------
+  Send(0, sendValue);
+
+  // ---------- DEBUG PRINTS ----------
+  Serial.print("Gas remote: ");
+  Serial.println(Speed);
+  Serial.print("Gas: ");
+  Serial.println(averageGasValue);
+  Serial.print("Break: ");
+  Serial.println(averageBreakValue);
+  Serial.print("BreakMapped: ");
+  Serial.println(BreakMappedValue);
+  Serial.print("GasMapped: ");
+  Serial.println(GasMappedValue);
+  Serial.print("Speed: ");
+  Serial.println(Speed);
 }
